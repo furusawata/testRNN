@@ -27,19 +27,28 @@ class RNN(object):
                 # Xは[7,1] or [10,1] or [13,1]の配列のどれか
                 tau = X.shape[0] # 取り出した学習データの個数をtauとする
 
-                zs, ys = self.__forward_seq(X) # 配列Xについて順方向計算を行う 
-                hidden_delta = np.zeros(self.n_hidden)
-                output_dEdw = np.zeros(self.output_weight.shape)
-                hidden_dEdw = np.zeros(self.hidden_weight.shape)
-                recurr_dEdw = np.zeros(self.recurr_weight.shape)
+                zs, ys = self.__forward_seq(X) # 配列Xについて順方向計算を行い、結果として隠れ層と出力層のリストを得る
 
+                # 逆方向計算の初期化
+                hidden_delta = np.zeros(self.n_hidden) # 隠れ層の微分値配列を初期化
+                output_dEdw = np.zeros(self.output_weight.shape) # 出力層の微分値の総和を初期化
+                hidden_dEdw = np.zeros(self.hidden_weight.shape) # 隠れ層の微分値の総和を初期化
+                recurr_dEdw = np.zeros(self.recurr_weight.shape) # 再帰層の微分値の総和を初期化
+
+                # 逆方向計算：tau-1から0までループする  tau=13のとき11→0 教師データは1個先のデータを使用するため　11の教師データは12
                 for t in range(tau - 1)[::-1]:
 
-                    # output delta
+                    # output delta 出力層の微分計算 誤差関数を２乗誤差(E=1/2*(y-t)^2)とすると微分値は(y-T)で、
+                    # 教師データtは1個先の入力値なのでy[t]-x[t+1]となる。
+                    # 出力層のアクティベート関数tanhの微分は(1-tanh(x)^2)であるが、y[t]=tanh(x[t])なので(1-y[t]^2)となる。
+                    # δoutを求める
                     output_delta = (ys[t] - X[t + 1, :]) * (1.0 - ys[t] ** 2)
+                    # δE/δWout(t)とδE/δcを求め累積する。
                     output_dEdw += output_delta.reshape(-1, 1) * np.hstack((1.0, zs[t]))
 
-                    # hidden delta
+                    # hidden delta 隠れ層の計算
+                    # 隠れ層のアクティベート関数であるシグモイドの微分はy・(1-y)なので(z[t]*(1-z[t])となる。z(t)=sigmoid(u[t])
+                    # δを求める
                     hidden_delta = (self.output_weight[:, 1:].T.dot(output_delta) 
                                   + self.recurr_weight[:, 1:].T.dot(hidden_delta)) * zs[t] * (1.0 - zs[t])
                     hidden_dEdw += hidden_delta.reshape(-1, 1) * np.hstack((1.0, X[t, :]))
@@ -110,9 +119,9 @@ class RNN(object):
         # 各計算の掛け算は内積 [x1, x2, x3]*[y1, y2, y3]=[x1*y1+x2*y2+x3*y3]
         # 再帰層の計算 r(t)=W*z(t-1)+d
         r = self.recurr_weight.dot(np.hstack((1.0, z)))
-        # 隠れ層の計算　z(t)=sigmoid(Win*x(t)+b+r(t))
+        # 隠れ層の計算　z(t)=sigmoid(Win*x(t)+b+r(t)) 隠れ層のアクティベート関数はシグモイド
         z = self.__sigmoid(self.hidden_weight.dot(np.hstack((1.0, x))) + r)
-        # 出力層の計算 y(t)=tanh(Wout*z(t)+c)
+        # 出力層の計算 y(t)=tanh(Wout*z(t)+c) 出力層のアクティベート関数はハイパブリックタンジェント
         y = self.__tanh(self.output_weight.dot(np.hstack((1.0, z))))
         return (z, y)
 
@@ -120,11 +129,13 @@ class RNN(object):
     def __forward_seq(self, X):
         # 隠れ層の出力z(t)を初期化する
         z = np.zeros(self.n_hidden)
-        # 隠れ層と出力層の値を配列にするための初期化
+        # 隠れ層と出力層の値をリストにするための初期化
         zs, ys = ([], [])
         # Xの各データについて順方向計算を行う
         for x in X:
             z, y = self.__forward(x, z)
+            # 順方向計算結果の隠れ層と出力層をリストに加える
             zs.append(z)
             ys.append(y)
+        # リストを結果として返す
         return zs, ys
